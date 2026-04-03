@@ -1,0 +1,2643 @@
+---
+title: "torithesis"
+author: "Brenna Arledge"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r prelim}
+#loading in packages
+library(haven)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(broom)
+
+#loading in dataset and attaching
+caps_rest <- read_sav("Z:/CAPs/Child/analysis/Rest/datasets/caps_resting_subset.sav")
+attach(caps_rest)
+
+caps_rest$PCIT_binary <- ifelse(caps_rest$PCIT == -1, 0 ,1)
+unique_values <- unique(caps_rest$PCIT_binary)
+
+caps_rest$ACE_binary <- ifelse(caps_rest$ACE > 3, 1, 0)
+
+# View the updated dataset
+print(unique_values)
+
+#filtering datasets into different tasks
+
+caps_rest_EC <- caps_rest %>% filter(ECEO == 0)
+
+# To filter for only rows where ECEO is 1
+caps_rest_EO <- caps_rest %>% filter(ECEO == 1)
+
+
+```
+
+
+```{r descriptives}
+#running descriptives; grouped by PCIT and ECEO
+desc_newpre <- caps_rest %>%
+       group_by(PCIT,ECEO) %>%
+       summarize(
+             mean_desc = mean(new_tb_pre, na.rm = TRUE),
+             sd_desc = sd(new_tb_pre, na.rm = TRUE),
+             count = n()
+         ) %>%
+       ungroup()
+print(desc_newpre)
+
+desc_newpost <- caps_rest %>%
+       group_by(PCIT,ECEO) %>%
+       summarize(
+             mean_desc = mean(new_tb_post, na.rm = TRUE),
+             sd_desc = sd(new_tb_post, na.rm = TRUE),
+             count = n()
+         ) %>%
+       ungroup()
+print(desc_newpost)
+
+desc_oldpre <- caps_rest %>%
+       group_by(PCIT,ECEO) %>%
+       summarize(
+             mean_desc = mean(orig_tb_pre, na.rm = TRUE),
+             sd_desc = sd(orig_tb_pre, na.rm = TRUE),
+             count =n()
+         ) %>%
+       ungroup()
+print(desc_oldpre)
+
+desc_oldpost <- caps_rest %>%
+       group_by(PCIT,ECEO) %>%
+       summarize(
+             mean_desc = mean(orig_tb_post, na.rm = TRUE),
+             sd_desc = sd(orig_tb_post, na.rm = TRUE),
+             count = n()
+         ) %>%
+       ungroup()
+print(desc_oldpost)
+
+#with PCIT binary (-1 is controls)
+desc_newpre <- caps_rest %>%
+       group_by(PCIT_binary,ECEO) %>%
+       summarize(
+             mean_desc = mean(new_tb_pre, na.rm = TRUE),
+             sd_desc = sd(new_tb_pre, na.rm = TRUE),
+             count = n()
+         ) %>%
+       ungroup()
+print(desc_newpre)
+
+desc_newpost <- caps_rest %>%
+       group_by(PCIT_binary,ECEO) %>%
+       summarize(
+             mean_desc = mean(new_tb_post, na.rm = TRUE),
+             sd_desc = sd(new_tb_post, na.rm = TRUE),
+             count = n()
+         ) %>%
+       ungroup()
+print(desc_newpost)
+
+desc_oldpre <- caps_rest %>%
+       group_by(PCIT_binary,ECEO) %>%
+       summarize(
+             mean_desc = mean(orig_tb_pre, na.rm = TRUE),
+             sd_desc = sd(orig_tb_pre, na.rm = TRUE),
+             count =n()
+         ) %>%
+       ungroup()
+print(desc_oldpre)
+
+desc_oldpost <- caps_rest %>%
+       group_by(PCIT_binary,ECEO) %>%
+       summarize(
+             mean_desc = mean(orig_tb_post, na.rm = TRUE),
+             sd_desc = sd(orig_tb_post, na.rm = TRUE),
+             count = n()
+         ) %>%
+       ungroup()
+print(desc_oldpost)
+
+aces_desc <- caps_rest %>%
+       group_by(heartrate_pre) %>%
+       summarize(
+             mean_desc = mean(ACE, na.rm = TRUE),
+             sd_desc = sd(ACE, na.rm = TRUE),
+             count = n()
+         ) %>%
+       ungroup()
+print(aces_desc)
+
+aces_desc <- caps_rest %>%
+       group_by(heartrate_post) %>%
+       summarize(
+             mean_desc = mean(ACE, na.rm = TRUE),
+             sd_desc = sd(ACE, na.rm = TRUE),
+             count = n()
+         ) %>%
+       ungroup()
+print(aces_desc)
+```
+
+
+```{r full regression model}
+# Split the data by ECEO and fit the model to each subset
+modelfull <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+```
+```{r with interactions}
+modelfull <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre * PCIT * age * ACE * CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig * PCIT * age * ACE * CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre * PCIT_binary * age * ACE * CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig * PCIT_binary * age * ACE * CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+```
+
+
+```{r averages}
+heartrate_pre<-c(0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,1,1,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0)
+   heartrate_post<-c(0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0)
+ caps_rest$heartrate_pre <- heartrate_pre # Add the first new variable
+caps_rest$heartrate_post <- heartrate_post  # Add the second new variable
+mean_pre_tb <- caps_rest %>%
+       group_by(heartrate_pre) %>%
+       summarize(
+             Mean_tb_rel2 = mean(new_tb_pre, na.rm = TRUE),
+             SD_tb_rel2 = sd(new_tb_pre, na.rm = TRUE)
+         ) %>%
+       ungroup()
+print(mean_pre_tb)
+
+mean_post_tb <- caps_rest %>%
+       group_by(heartrate_post) %>%
+       summarize(
+             Mean_tb_rel2 = mean(new_tb_post, na.rm = TRUE),
+             SD_tb_rel2 = sd(new_tb_post, na.rm = TRUE)
+         ) %>%
+       ungroup()
+print(mean_post_tb)
+
+table(heartrate_pre)
+30/64
+table(heartrate_post)
+38/56 #higher percentage in wave 3
+
+
+```
+
+```{r paired t-tests}
+t.test(orig_tb_pre, new_tb_pre, paired=TRUE)
+t.test(orig_tb_post,new_tb_post,paired=TRUE) #significant
+t.test(theta_pre, theta_preo, paired=TRUE)#significant
+t.test(theta_post,theta_posto,paired=TRUE)#significant
+t.test(beta_pre, beta_preo, paired=TRUE)#significant
+t.test(beta_post,beta_posto,paired=TRUE)#significant
+t.test(caps_rest_EC$orig_tb_pre,caps_rest_EC$new_tb_pre, paired=TRUE)#notsig
+t.test(caps_rest_EO$orig_tb_pre,caps_rest_EO$new_tb_pre, paired=TRUE)#not sig
+
+t.test(caps_rest_EC$orig_tb_post,caps_rest_EC$new_tb_post, paired=TRUE)#sig
+t.test(caps_rest_EO$orig_tb_post,caps_rest_EO$new_tb_post, paired=TRUE)#notsig
+
+t.test(caps_rest_EC$theta_pre,caps_rest_EC$theta_preo, paired=TRUE)#sig
+t.test(caps_rest_EO$beta_pre,caps_rest_EO$beta_preo, paired=TRUE)#sig
+t.test(caps_rest_EC$theta_pre,caps_rest_EC$theta_preo, paired=TRUE)#sig
+t.test(caps_rest_EO$beta_pre,caps_rest_EO$beta_preo, paired=TRUE)#sig
+t.test(caps_rest_EC$theta_post,caps_rest_EC$theta_posto, paired=TRUE)#sig
+t.test(caps_rest_EO$beta_post,caps_rest_EO$beta_posto, paired=TRUE)#sig
+t.test(caps_rest_EC$theta_post,caps_rest_EC$theta_posto, paired=TRUE)#sig
+t.test(caps_rest_EO$beta_post,caps_rest_EO$beta_posto, paired=TRUE)#sig
+
+# mean(theta_pre)
+# mean(theta_preo)
+#means
+mean(orig_tb_post)
+mean(new_tb_post)
+mean(theta_post)
+mean(theta_posto)
+mean(beta_pre)
+mean(beta_preo)
+mean(beta_post)
+mean(beta_posto)
+
+#sd
+sd(orig_tb_post)
+sd(new_tb_post)
+sd(theta_post)
+sd(theta_posto)
+sd(beta_pre)
+sd(beta_preo)
+sd(beta_post)
+sd(beta_posto)
+
+```
+
+```{r ANOVAs}
+library(tidyr)
+library(dplyr)
+
+subject <- rep(1:47, each = 2)
+attach(caps_rest)
+
+#anova data for pre tb
+aov_data_pre<-data.frame(subject,new_tb_pre,orig_tb_pre,heartrate_pre,PCIT,ACE,age)
+attach(aov_data_pre)
+
+
+data_long_pre <- aov_data_pre %>%
+  pivot_longer(cols = c(new_tb_pre, orig_tb_pre),
+               names_to = "Dataset",
+               values_to = "TBRatio")
+
+#anova data for post tb
+aov_data_post<-data.frame(subject,new_tb_post,orig_tb_post,heartrate_post,PCIT,ACE)
+
+
+
+data_long_post <- aov_data_post %>%
+  pivot_longer(cols = c(new_tb_post, orig_tb_post),
+               names_to = "Dataset",
+               values_to = "TBRatio")
+
+# Perform ANOVAs
+anova_aov <- aov(TBRatio ~ Dataset + Error(subject/Dataset), data = data_long_post)
+
+# Print results
+summary(anova_aov)
+
+anova_aov <- aov(TBRatio ~ Dataset * ACE + Error(subject/Dataset), data = data_long_post)
+
+summary(anova_aov)
+
+
+result_pren<-aov(new_tb_pre ~ heartrate_pre + Error(subject/heartrate_pre), data = caps_rest)
+summary(result_pren) 
+
+result_postn<-aov(new_tb_post ~ heartrate_post  + Error(subject/heartrate_post), data = caps_rest) #sig almost
+summary(result_postn)
+
+acenew_aov<-aov(theta_pre~ACE + Error(subject/ACE),data=caps_rest)#sig
+summary(acenew_aov)
+
+
+aceorig_aov<-aov(theta_preo~ACE + Error(subject/ACE),data=caps_rest)#sig
+summary(aceorig_aov)
+
+##using split task data
+subject_split<-1:47
+
+#preEC
+aov_data_pre_EC<-data.frame(subject_split,caps_rest_EC$new_tb_pre,caps_rest_EC$orig_tb_pre,caps_rest_EC$heartrate_pre,caps_rest_EC$PCIT,caps_rest_EC$ACE,caps_rest_EC$age)
+
+
+data_long_pre_EC <- aov_data_pre_EC %>%
+  pivot_longer(cols = c(caps_rest_EC.new_tb_pre, caps_rest_EC.orig_tb_pre),
+               names_to = "Dataset",
+               values_to = "TBRatio")
+
+#pre EO
+aov_data_pre_EO<-data.frame(subject_split,caps_rest_EO$new_tb_pre,caps_rest_EO$orig_tb_pre,caps_rest_EO$heartrate_pre,caps_rest_EO$PCIT,caps_rest_EO$ACE,caps_rest_EO$age)
+
+
+data_long_pre_EO <- aov_data_pre_EO %>%
+  pivot_longer(cols = c(caps_rest_EO.new_tb_pre, caps_rest_EO.orig_tb_pre),
+               names_to = "Dataset",
+               values_to = "TBRatio")
+
+#Post EC
+aov_data_post_EC<-data.frame(subject_split,caps_rest_EC$new_tb_post,caps_rest_EC$orig_tb_post,caps_rest_EC$heartrate_post,caps_rest_EC$PCIT,caps_rest_EC$ACE,caps_rest_EC$age)
+
+
+data_long_post_EC <- aov_data_post_EC %>%
+  pivot_longer(cols = c(caps_rest_EC.new_tb_post, caps_rest_EC.orig_tb_post),
+               names_to = "Dataset",
+               values_to = "TBRatio")
+
+#Post EO
+aov_data_post_EO<-data.frame(subject_split,caps_rest_EO$new_tb_post,caps_rest_EO$orig_tb_post,caps_rest_EO$heartrate_post,caps_rest_EO$PCIT,caps_rest_EO$ACE,caps_rest_EO$age)
+
+
+data_long_post_EO <- aov_data_post_EO %>%
+  pivot_longer(cols = c(caps_rest_EO.new_tb_post, caps_rest_EO.orig_tb_post),
+               names_to = "Dataset",
+               values_to = "TBRatio")
+
+#running anovas using split data-TB ratios only
+pre_ec_aov <- aov(TBRatio ~ Dataset + Error(subject/Dataset), data = data_long_pre_EC)
+summary(pre_ec_aov) #not sig
+
+pre_eo_aov <- aov(TBRatio ~ Dataset + Error(subject/Dataset), data = data_long_pre_EO)
+summary(pre_eo_aov) #not sig
+
+post_ec_aov <- aov(TBRatio ~ Dataset + Error(subject/Dataset), data = data_long_post_EC)
+summary(post_ec_aov) #not sig
+
+post_eo_aov <- aov(TBRatio ~ Dataset + Error(subject/Dataset), data = data_long_post_EO)
+summary(post_eo_aov) #not sig
+
+result_postec<-aov(caps_rest_EC.new_tb_post ~ caps_rest_EC.heartrate_post  + Error(subject_split/caps_rest_EC.heartrate_post), data = aov_data_post_EC)
+summary(result_postn)#sig almost
+
+result_posteo<-aov(caps_rest_EO.new_tb_post ~ caps_rest_EO.heartrate_post  + Error(subject_split/caps_rest_EO.heartrate_post), data = aov_data_post_EO)
+summary(result_posteo)#NOT SIG  
+
+
+##using binary PCIT
+subject <- rep(1:47, each = 2)
+attach(caps_rest)
+
+#anova data for pre tb
+aov_data_pre_binary<-data.frame(subject,new_tb_pre,orig_tb_pre,heartrate_pre,PCIT_binary,ACE,age)
+attach(aov_data_pre_binary)
+
+
+data_long_pre_binary <- aov_data_pre_binary %>%
+  pivot_longer(cols = c(new_tb_pre, orig_tb_pre),
+               names_to = "Dataset",
+               values_to = "TBRatio")
+
+#anova data for post tb
+aov_data_post_binary<-data.frame(subject,new_tb_post,orig_tb_post,heartrate_post,PCIT_binary,ACE)
+
+data_long_post_binary <- aov_data_post_binary %>%
+  pivot_longer(cols = c(new_tb_post, orig_tb_post),
+               names_to = "Dataset",
+               values_to = "TBRatio")
+
+
+pcit_aov<-aov(theta_preo~PCIT_binary + Error(subject/PCIT_binary),data=aov_data_pre_binary)
+summary(pcit_aov)
+
+#redoing
+#nope
+aov_model <- aov(
+    trans_tb_pre ~ heartrate_pre + PCIT + ACE_binary + ECEO + 
+        Error(subject),
+    data = caps_rest
+)
+
+summary(aov_model)
+
+#nothing for Tb trans or not, with pcit and ace or without
+aov_model <- aov(
+    new_tb_pre ~ heartrate_pre,
+    data = caps_ec
+)
+
+summary(aov_model)
+
+aov_model <- aov(
+    new_tb_pre ~ heartrate_pre,
+    data = caps_eo
+)
+
+summary(aov_model)
+
+aov_model <- aov(
+    new_tb_post ~ heartrate_post,
+    data = caps_ec
+)
+
+summary(aov_model)
+
+aov_model <- aov(
+    new_tb_post ~ heartrate_post,
+    data = caps_eo
+)
+
+summary(aov_model)
+
+#just theta 
+aov_model <- aov(
+    theta_pre ~ heartrate_pre,
+    data = caps_eo
+)
+
+summary(aov_model)
+
+#SIG
+aov_model <- aov(
+    theta_pre ~ heartrate_pre +PCIT + ACE_binary,
+    data = caps_ec
+)
+
+summary(aov_model)
+
+#not post
+aov_model <- aov(
+    theta_post ~ heartrate_post,
+    data = caps_eo
+)
+
+summary(aov_model)
+
+
+aov_model <- aov(
+    theta_post ~ heartrate_post,
+    data = caps_ec
+)
+
+summary(aov_model)
+
+
+#just beta 
+aov_model <- aov(
+    beta_pre ~ heartrate_pre,
+    data = caps_eo
+)
+
+summary(aov_model)
+
+#SIG
+aov_model <- aov(
+    beta_pre ~ heartrate_pre + PCIT + ACE_binary,
+    data = caps_ec
+)
+
+summary(aov_model)
+
+#not post
+aov_model <- aov(
+    beta_post ~ heartrate_post,
+    data = caps_eo
+)
+
+summary(aov_model)
+
+
+aov_model <- aov(
+    beta_post ~ heartrate_post,
+    data = caps_ec
+)
+
+summary(aov_model)
+
+```
+```{r lm}
+# Identify TB ratio variables by timepoint
+caps_rest <- caps_rest %>%
+  mutate(subject = str_extract(filename1, "CAPS\\d+"))
+
+tb_pre_vars <- c("trans_tb_pre", "orig_tb_pre", "new_tb_pre", "tb_pre_trans_orig")
+tb_post_vars <- c("trans_tb_post", "orig_tb_post", "new_tb_post", "tb_post_trans_orig")
+
+
+# =============================================================================
+# PRE TIMEPOINT ANALYSIS
+# =============================================================================
+
+#no main effect just heartrate:PCIT for full dataset 
+model_pre_trans <- lmer(
+  new_tb_pre ~ heartrate_pre * age + 
+                 heartrate_pre * ACE_binary + 
+                 heartrate_pre * PCIT + 
+                 heartrate_pre * CHAOS + 
+                 age + ACE_binary + PCIT + CHAOS + 
+                 (1 | subject),   # subject ID, not filename1
+  data = caps_rest
+)
+#only ec, same interaction
+model_pre_ec <- lm(
+  new_tb_pre ~ heartrate_pre * age + 
+                 heartrate_pre * ACE_binary + 
+                 heartrate_pre * PCIT + 
+                 heartrate_pre * CHAOS + 
+                 age + ACE_binary + PCIT + CHAOS,   # subject ID, not filename1
+  data = caps_rest_EC
+)
+
+model_pre_eo <- lm(
+  new_tb_pre ~ heartrate_pre * age + 
+                 heartrate_pre * ACE_binary + 
+                 heartrate_pre * PCIT + 
+                 heartrate_pre * CHAOS + 
+                 age + ACE_binary + PCIT + CHAOS,   # subject ID, not filename1
+  data = caps_rest_EO
+)
+
+# Model summary
+print("Model Summary:")
+summary(model_pre_trans)
+summary(model_pre_eo)
+summary(model_pre_ec)
+
+print("\nANOVA Results:")
+Anova(model_pre_trans, type = "III")
+
+# Visualization for PRE
+p1 <- ggplot(caps_rest, aes(x = heartrate_pre, y = trans_tb_pre)) +
+    geom_point(alpha = 0.6, color = "blue") +
+    geom_smooth(method = "lm", se = TRUE, color = "red") +
+    labs(title = "Heart Rate Pre vs Trans TB Pre",
+         x = "Heart Rate Pre", y = "Trans TB Pre") +
+    theme_minimal()
+print(p1)
+
+# =============================================================================
+# POST TIMEPOINT ANALYSIS  
+# =============================================================================
+
+
+model_post_trans <- lmer(
+  new_tb_post ~ heartrate_pre * age + 
+                 heartrate_pre * ACE_binary + 
+                 heartrate_pre * PCIT + 
+                 heartrate_pre * CHAOS + 
+                 age + ACE_binary + PCIT + CHAOS +
+                 (1 | subject),   # subject ID, not filename1
+  data = caps_rest
+)
+
+#still no HR
+model_post_ec <- lm(
+  new_tb_post ~ heartrate_post * age + 
+                 heartrate_pre * ACE_binary + 
+                 heartrate_pre * PCIT + 
+                 heartrate_pre * CHAOS + 
+                 age + ACE_binary + PCIT + CHAOS,   # subject ID, not filename1
+  data = caps_rest_EC
+)
+model_post_eo <- lm(
+  new_tb_post ~ heartrate_post * age + 
+                 heartrate_pre * ACE_binary + 
+                 heartrate_pre * PCIT + 
+                 heartrate_pre * CHAOS + 
+                 age + ACE_binary + PCIT + CHAOS,   # subject ID, not filename1
+  data = caps_rest_EO
+)
+# Model summary
+print("Model Summary:")
+summary(model_post_trans)
+summary(model_post_eo)
+summary(model_post_ec)
+
+print("\nANOVA Results:")
+Anova(model_post_trans, type = "III")
+
+
+# Visualization for POST
+p2 <- ggplot(caps_rest, aes(x = heartrate_post, y = trans_tb_post)) +
+    geom_point(alpha = 0.6, color = "darkgreen") +
+    geom_smooth(method = "lm", se = TRUE, color = "red") +
+    labs(title = "Heart Rate Post vs Trans TB Post",
+         x = "Heart Rate Post", y = "Trans TB Post") +
+    theme_minimal()
+print(p2)
+
+
+
+```
+
+
+```{r correlations}
+#commented out ones arent significant
+# cor.test(ACE,new_tb_pre)
+# cor.test(ACE,new_tb_post)
+# cor.test(CHAOS,new_tb_pre)
+# cor.test(CHAOS,new_tb_post)
+# cor.test(heartrate_pre,new_tb_pre)
+# cor.test(orig_tb_pre,ACE)  
+# cor.test(orig_tb_post,ACE)
+# cor.test(new_tb_pre,PCIT)
+# cor.test(new_tb_post,PCIT)
+# cor.test(orig_tb_pre,PCIT)
+# cor.test(orig_tb_post,PCIT)
+# cor.test(new_tb_pre,CHAOS)
+# cor.test(new_tb_post,CHAOS)
+# cor.test(orig_tb_pre,CHAOS)
+# cor.test(orig_tb_post,CHAOS)
+# cor.test(heartrate_pre,CHAOS)
+# cor.test(heartrate_post,CHAOS)
+# cor.test(orig_tb_post,age)
+# cor.test(theta_post,ACE)
+# cor.test(theta_posto,ACE)
+# cor.test(beta_preo,ACE)
+# cor.test(beta_posto,ACE)
+# cor.test(theta_post,heartrate_post)
+# cor.test(beta_post,heartrate_post)
+# cor.test(beta_post,age)
+# cor.test(beta_preo,age)
+# cor.test(beta_posto,age)
+# cor.test(theta_pre,age)
+
+cor.test(heartrate_post,new_tb_post) #significant
+cor.test(heartrate_pre,ACE) #significant
+cor.test(heartrate_post,ACE) #significant
+cor.test(new_tb_pre,new_tb_post) # very sig
+cor.test(new_tb_pre,age)#sig
+cor.test(new_tb_post,age)#sig
+cor.test(orig_tb_pre,age)#significant
+cor.test(theta_pre,ACE) #sig
+cor.test(theta_preo,ACE)#sig
+cor.test(beta_pre,ACE)#almost sig
+cor.test(beta_post,ACE)#sig
+cor.test(theta_pre,heartrate_pre)
+cor.test(beta_pre,heartrate_pre)
+cor.test(theta_post,age)
+cor.test(theta_preo,age)
+cor.test(theta_posto,age)
+cor.test(beta_pre,age)
+
+```
+
+```{r plots}
+#spaghetti plot for post orig vs new
+ #making yet another dataset for plotting theta and beta
+
+# Create plot_theta dataframe with both theta and heartrate variables for pre and post
+plot_theta <- data.frame(
+  subject = subject,
+  theta_pre = caps_rest$theta_pre,
+  theta_preo = caps_rest$theta_preo,
+  theta_post = caps_rest$theta_post,
+  theta_posto = caps_rest$theta_posto,
+  heartrate_pre = caps_rest$heartrate_pre,
+  heartrate_post = caps_rest$heartrate_post,
+  PCIT = caps_rest$PCIT,
+  ACE = caps_rest$ACE,
+  age = caps_rest$age
+)
+
+# Pivot theta variables to long format
+theta_long <- plot_theta %>%
+  pivot_longer(
+    cols = c(theta_pre, theta_preo, theta_post, theta_posto),
+    names_to = c(".value", "timepoint"),
+    names_pattern = "(theta)_(pre|post)"
+  )
+
+# Pivot heartrate variables to long format
+heartrate_long <- plot_theta %>%
+  pivot_longer(
+    cols = c(heartrate_pre, heartrate_post),
+    names_to = c(".value", "timepoint"),
+    names_pattern = "(heartrate)_(pre|post)"
+  )
+
+# Join theta and heartrate dataframes by subject, timepoint, and other relevant columns
+plot_theta_long <- left_join(theta_long, heartrate_long, by = c("subject", "timepoint", "PCIT", "ACE", "age"),multiple="all")
+
+
+#beta plot
+plot_beta <- data.frame(
+  subject = subject,
+  beta_pre = caps_rest$beta_pre,
+  beta_preo = caps_rest$beta_preo,
+  beta_post = caps_rest$beta_post,
+  beta_posto = caps_rest$beta_posto,
+  heartrate_pre = caps_rest$heartrate_pre,
+  heartrate_post = caps_rest$heartrate_post,
+  PCIT = caps_rest$PCIT,
+  ACE = caps_rest$ACE,
+  age = caps_rest$age
+)
+
+plot_beta <- plot_beta %>%
+  pivot_longer(
+    cols = c(beta_pre, beta_preo, beta_post, beta_posto),
+    names_to = c(".value", "timepoint"),
+    names_pattern = "(beta)_(pre|post)"
+  )
+
+
+# Join theta and heartrate dataframes by subject, timepoint, and other relevant columns
+plot_beta_long <- left_join(plot_beta, heartrate_long, by = c("subject", "timepoint", "PCIT", "ACE", "age"),multiple="all")
+
+
+library(ggplot2)
+#theta plot
+ggplot(plot_theta_long, aes(x = timepoint, y = theta, group = subject, color = factor(heartrate))) +
+    geom_line(alpha = 0.3) +  # Semi-transparent lines for individual subjects
+    geom_point(alpha = 0.3) +  # Points for individual data
+    stat_summary(
+        aes(group = heartrate, color = factor(heartrate)),  # Group by heartrate for mean lines
+        fun = mean,  # Use mean to compute the summary line
+        geom = "line",
+        linewidth = 1.5  # Make the mean line thicker
+    ) +
+    scale_x_discrete(limits = c("pre", "post")) +  # Reverse the order of timepoints
+    scale_color_manual(
+        values = c("seagreen3", "dark green"),  # Customize colors for the two levels
+        name = "Presence Of Heartrate",  # Add a label for the legend
+        labels = c("Yes", "No")  # Change labels if needed
+    ) +
+    labs(
+        title = "Theta Power Across Datasets",
+        x = "Dataset",
+        y = "Theta Power"
+    ) +
+    theme_minimal()
+
+#beta plot
+ggplot(plot_beta_long, aes(x = timepoint, y = beta, group = subject, color = factor(heartrate))) +
+    geom_line(alpha = 0.3) +  # Semi-transparent lines for individual subjects
+    geom_point(alpha = 0.3) +  # Points for individual data
+    stat_summary(
+        aes(group = heartrate, color = factor(heartrate)),  # Group by heartrate for mean lines
+        fun = mean,  # Use mean to compute the summary line
+        geom = "line",
+        linewidth = 1.5  # Make the mean line thicker
+    ) +
+    scale_x_discrete(limits = c("pre", "post")) +  # Reverse the order of timepoints
+    scale_color_manual(
+        values = c("seagreen3", "dark green"),  # Customize colors for the two levels
+        name = "Presence Of Heartrate",  # Add a label for the legend
+        labels = c("Yes", "No")  # Change labels if needed
+    ) +
+    labs(
+        title = "Beta Power Across Datasets",
+        x = "Dataset",
+        y = "Beta Power"
+    ) +
+    theme_minimal()
+
+#difference plot for post
+# caps_rest$diff <- caps_rest$new_tb_post - caps_rest$new_tb_post
+# ggplot(caps_rest, aes(x = (new_tb_post + orig_tb_post) / 2, y = diff, color = factor(heartrate_post))) +
+#     geom_point() +  # Points showing the difference
+#     geom_hline(yintercept = mean(caps_rest$diff), color = "red", linetype = "dashed") +  # Mean difference line
+#     labs(title = "Mean Difference in TB Ratio",
+#          x = "Average TB Post",
+#          y = "Difference (New TB - Original TB)",
+#          color = "Presence of Heartrate") +  # Legend title for the grouping variable
+#     theme_minimal() +
+#     scale_color_manual(values = c("0" = "seagreen3", "1" = "darkgreen"),  # Customize colors for the groups
+#                        labels = c("0" = "No", "1" = "Yes"))
+# 
+# ggplot(aov_data, aes(x = time_point, y = new_tb, color = heartrate, group = heartrate)) +
+#     geom_line() +
+#     geom_point() +
+#     labs(title = "Interaction Plot of Treatment and Time",
+#          x = "Time",
+#          y = "Outcome") +
+#     theme_minimal()
+# 
+# library(dplyr)
+# library(ggplot2)
+# 
+# # Calculate the mean of new_tb for each time_point and heartrate
+# aov_data_avg <- aov_data %>%
+#     group_by(time_point, heartrate) %>%
+#     summarise(mean_tb = mean(new_tb, na.rm = TRUE))
+# 
+# # Create the plot
+# ggplot(aov_data_avg, aes(x = time_point, y = mean_tb, color = heartrate, group = heartrate)) +
+#     geom_line() +
+#     geom_point() +
+#     labs(title = "Interaction Plot of Treatment and Time (Average Pre/Post)",
+#          x = "Time",
+#          y = "Mean Outcome") +
+#     theme_minimal()
+
+```
+
+
+```{r models for hr and non hr subsets}
+#only HR people
+only_hr<-caps_rest %>%
+  group_by(filename1)%>%
+  filter(heartrate_pre==1|heartrate_post==1)%>%
+  pull(filename1) %>%
+  unique()
+
+caps_hr <- caps_rest %>%
+  filter(filename1 %in% only_hr)
+
+# Split the data by ECEO and fit the model to each subset
+modelfull <- caps_hr %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_hr %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_hr %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_hr %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+
+
+
+
+```
+```{r}
+##full subset
+# Split the data by ECEO and fit the model to each subset
+modelfull <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+```
+
+```{r models with theta}
+#only HR people
+only_hr<-caps_rest %>%
+  group_by(filename1)%>%
+  filter(heartrate_pre==1|heartrate_post==1)%>%
+  pull(filename1) %>%
+  unique()
+
+caps_hr <- caps_rest %>%
+  filter(filename1 %in% only_hr)
+
+# Split the data by ECEO and fit the model to each subset
+modelfull <- caps_hr %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(theta_post ~ theta_pre + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_hr %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_hr %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(theta_post ~ theta_pre + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_hr %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+
+
+###ONLY nonHR ####
+#only HR people
+non_hr<-caps_rest %>%
+  group_by(filename1)%>%
+  filter(heartrate_pre==1|heartrate_post==1)%>%
+  pull(filename1) %>%
+  unique()
+
+caps_hr_non <- caps_rest %>%
+  filter(filename1 %in% non_hr)
+
+# Split the data by ECEO and fit the model to each subset
+modelfull <- caps_hr_non %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(theta_posto ~ theta_preo + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_hr_non %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_hr_non %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(theta_posto ~ theta_preo + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_hr_non %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+```
+```{r}
+#theta full subset
+# Split the data by ECEO and fit the model to each subset
+modelfull <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(theta_post ~ theta_pre + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(theta_post ~ theta_pre + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+
+```
+
+```{r models with beta}
+#only HR people
+only_hr<-caps_rest %>%
+  group_by(filename1)%>%
+  filter(heartrate_pre==1|heartrate_post==1)%>%
+  pull(filename1) %>%
+  unique()
+
+caps_hr <- caps_rest %>%
+  filter(filename1 %in% only_hr)
+
+# Split the data by ECEO and fit the model to each subset
+modelfull <- caps_hr %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(beta_post ~ beta_pre + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_hr %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_hr %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(beta_post ~ beta_pre + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_hr %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+
+
+###ONLY HR for clean data ####
+#only HR people
+non_hr<-caps_rest %>%
+  group_by(filename1)%>%
+  filter(heartrate_pre==1|heartrate_post==1)%>%
+  pull(filename1) %>%
+  unique()
+
+caps_hr_non <- caps_rest %>%
+  filter(filename1 %in% non_hr)
+
+# Split the data by ECEO and fit the model to each subset
+modelfull <- caps_hr_non %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(beta_posto ~ beta_preo + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_hr_non %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(beta_posto ~ beta_preo + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_hr_non %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(beta_posto ~ beta_preo + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_hr_non %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(beta_posto ~ beta_preo + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+```
+```{r}
+#beta with full subset
+modelfull <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(beta_post ~ beta_pre + PCIT + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_rest %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(beta_post ~ beta_pre + PCIT_binary + age + ACE + CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_rest %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(theta_posto ~ theta_preo + PCIT_binary + age + ACE + CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+
+```
+
+```{r with interactions}
+modelfull <- caps_hr %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre * PCIT * age * ACE * CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull <- modelfull %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull <- modelfull %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+
+modelsfullorig <- caps_hr %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig * PCIT * age * ACE * CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig <- modelsfullorig %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig <- modelsfullorig %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull)
+print(model_sumorig)
+
+model_sumfull_clean <- model_sumfull %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean <- model_sumorig %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+#sig for post tb ratio; pre tb ratio predicts post tb ratio
+
+
+#using PCIT binary
+modelfull_binary <- caps_hr %>% 
+    group_by(ECEO) %>% 
+    nest() %>% 
+    mutate(model = map(data, ~ {
+        if (nrow(.x) > 0) {
+            lm(trans_tb_post ~ trans_tb_pre * PCIT_binary * age * ACE * CHAOS, data = .x)
+        } else {
+            NA  
+        }
+    }))
+
+# Filter out the NULL models
+modelfull_binary <- modelfull_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumfull_binary <- modelfull_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+
+modelsfullorig_binary <- caps_hr %>%
+  group_by(ECEO) %>%
+  nest() %>%
+  mutate(model = map(data, ~ if(nrow(.x) > 0) lm(tb_post_trans_orig ~ tb_pre_trans_orig * PCIT_binary * age * ACE * CHAOS, data = .x) else NULL))
+
+# Filter out the NULL models
+modelsfullorig_binary <- modelsfullorig_binary %>% filter(!is.null(model))
+
+# Extract and print the summaries of each model
+model_sumorig_binary <- modelsfullorig_binary %>%
+  mutate(summary = map(model, tidy)) %>%
+  select(ECEO, summary) %>%
+  unnest(summary)
+
+print(model_sumfull_binary)
+print(model_sumorig_binary)
+
+model_sumfull_clean_binary <- model_sumfull_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+model_sumorig_clean_binary <- model_sumorig_binary %>%
+  select(ECEO, term, estimate, std.error, statistic, p.value) %>%
+  mutate(ECEO = as.factor(ECEO),
+         estimate = as.numeric(estimate),
+         std.error = as.numeric(std.error),
+         statistic = as.numeric(statistic),
+         p.value = as.numeric(p.value)) 
+
+library(knitr)
+library(kableExtra)
+
+# Create a kable table
+model_sumfull_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+
+model_sumorig_clean_binary %>%
+    kable(format = "html", digits = 3, col.names = c("Group", "Predictor", "Estimate", "Standard Error", "t Value", "p Value")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c("Model Summary" = 6)) %>%
+    add_footnote("Model summary for each group (ECEO = 0, 1)")
+```
+
+```{r bias measurement}
+caps_rest <- caps_rest %>%
+    mutate(
+        bias_pre  = trans_tb_pre  - tb_pre_trans_orig,
+        bias_post = trans_tb_post - tb_post_trans_orig,
+        condition = if_else(str_detect(filename1, "EC"), "EC", "EO")
+    )
+
+# Step 2: get all combinations of condition and PCIT
+combinations <- caps_rest %>% distinct(condition, PCIT)
+
+# Step 3: helper to compute Cohen's d for a vector
+compute_d <- function(x, timepoint, cond, pcit) {
+    d <- cohens_d(x, mu = 0, ci = 0.95)
+    as.data.frame(d) %>% mutate(timepoint = timepoint, condition = cond, PCIT = pcit)
+}
+
+# Step 4: loop over combinations and timepoints
+results_list <- list()
+
+for(i in 1:nrow(combinations)) {
+    cond <- combinations$condition[i]
+    pcit <- combinations$PCIT[i]
+    
+    subset_data <- filter(caps_rest, condition == cond, PCIT == pcit)
+    
+    # Pre
+    results_list[[length(results_list) + 1]] <- compute_d(subset_data$bias_pre, "pre", cond, pcit)
+    
+    # Post
+    results_list[[length(results_list) + 1]] <- compute_d(subset_data$bias_post, "post", cond, pcit)
+}
+
+# Step 5: combine all into one table
+results <- bind_rows(results_list) %>%
+    arrange(PCIT, timepoint, condition)
+
+results
+
+#for only HR people
+only_hr<-caps_rest %>%
+  group_by(filename1)%>%
+  filter(heartrate_pre==1|heartrate_post==1)%>%
+  pull(filename1) %>%
+  unique()
+
+only_hr <- caps_rest %>%
+  filter(filename1 %in% only_hr)
+
+only_hr <- only_hr %>%
+    mutate(
+        bias_pre  = trans_tb_pre  - tb_pre_trans_orig,
+        bias_post = trans_tb_post - tb_post_trans_orig,
+        condition = if_else(str_detect(filename1, "EC"), "EC", "EO")
+    )
+
+# Step 2: get all combinations of condition and PCIT
+combinations <- only_hr %>% distinct(condition, PCIT)
+
+# Step 3: helper to compute Cohen's d for a vector
+compute_d <- function(x, timepoint, cond, pcit) {
+    d <- cohens_d(x, mu = 0, ci = 0.95)
+    as.data.frame(d) %>% mutate(timepoint = timepoint, condition = cond, PCIT = pcit)
+}
+
+# Step 4: loop over combinations and timepoints
+results_list <- list()
+
+for(i in 1:nrow(combinations)) {
+    cond <- combinations$condition[i]
+    pcit <- combinations$PCIT[i]
+    
+    subset_data <- filter(only_hr, condition == cond, PCIT == pcit)
+    
+    # Pre
+    results_list[[length(results_list) + 1]] <- compute_d(subset_data$bias_pre, "pre", cond, pcit)
+    
+    # Post
+    results_list[[length(results_list) + 1]] <- compute_d(subset_data$bias_post, "post", cond, pcit)
+}
+
+# Step 5: combine all into one table
+results_hr <- bind_rows(results_list) %>%
+    arrange(PCIT, timepoint, condition)
+
+results_hr
+
+
+#t-test
+comparison_data <- results %>%
+  select(condition, PCIT, timepoint, Cohens_d) %>%
+  rename(cohens_d_full = Cohens_d) %>%
+  left_join(
+    results_hr %>% select(condition, PCIT, timepoint, Cohens_d) %>%
+    rename(cohens_d_hr = Cohens_d),
+    by = c("condition", "PCIT", "timepoint")
+  ) %>%
+  filter(!is.na(cohens_d_hr)) # Remove cases where HR data doesn't exist
+
+# Check the merged data
+print("Comparison data:")
+print(comparison_data)
+print(paste("Number of paired observations:", nrow(comparison_data)))
+
+# Paired t-test
+t_test_result <- t.test(
+  comparison_data$cohens_d_hr, 
+  comparison_data$cohens_d_full,
+  paired = TRUE  # Testing if HR > Full
+)
+
+print(t_test_result)
+
+```
+
+```{r iclabel %}
+df <- data.frame(
+  Other = 27,
+  Brain = 13,
+  Muscle = 1,
+  Eye = 24,
+  Heart = 0,
+  `Line Noise` = 0,
+  `Channel Noise` = 4
+)
+
+df
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Your data
+df <- data.frame(
+  Other = 27,
+  Brain = 13,
+  Muscle = 1,
+  Eye = 24,
+  Heart = 0,
+  `Line Noise` = 0,
+  `Channel Noise` = 4
+)
+
+# Convert to long format
+df_long <- df %>%
+  pivot_longer(cols = everything(), 
+               names_to = "Channel", 
+               values_to = "Count")
+
+# Bar graph
+ggplot(df_long, aes(x = Channel, y = Count, fill = Channel)) +
+  geom_col() +
+  scale_fill_brewer(palette = "Set3") +  # Choose a palette like Set1, Set2, Set3
+  theme_minimal() +
+  labs(title = "Highest ICLABEL %", y = "Count", x = "ICLABEL Categories") +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1)) +
+  guides(fill = FALSE) +
+ theme(
+  axis.text = element_text(size = 10),
+  axis.title = element_text(size = 14),
+  plot.title = element_text(size = 16),
+  legend.text = element_text(size = 12),
+  legend.title = element_text(size = 13)
+)
+# optional: remove legend
+
+```
+
