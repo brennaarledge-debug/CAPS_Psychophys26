@@ -9,7 +9,7 @@ The study investigates the impact of inaccurate ICLABEL labels on Pediatric EEG 
 ## Repository Structure
 
 ```
-├── torithesis.Rmd        # Main simulation script (annotated)
+├── torithesis.Rmd        # Main code script (annotated)
 ├── results/            # Folder where simulation results are saved
 └── README.md           # This file
 ```
@@ -36,7 +36,7 @@ source("torithesis.Rmd")
 ```
 
 - The script will iterate through all conditions specified in the dataset available upon request given the sensitive nature of our dataset.  
-- Results are written to `results/` as `.csv` files.  
+- Results are written to `results/` 
 
 ---
 ## Analyses Performed
@@ -46,8 +46,6 @@ Multiple Linear Regressions using Pre-treatment Theta Beta Ratio, ACE Score, CHA
 Cohen's D were ran to assess bias between the properly cleaned and improperly cleaned datasets. 
 
 ## Output
-
-For each condition:
 
 - **`results/torithesis.html`**  
   Contains output for the full subset and heartrate subset.
